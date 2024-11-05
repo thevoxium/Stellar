@@ -1,5 +1,63 @@
-# 2D Physics Engine
 
+# Stellar Engine
+
+A lightweight 2D physics engine written in C++. Stellar provides a simple and efficient foundation for physics-based games and simulations.
+
+
+## Quick Start
+
+### Prerequisites
+- C++ compiler with C++11 support
+- SDL2 library
+
+### Installation
+
+#### macOS (using Homebrew)
+```bash
+brew install sdl2
+```
+
+#### Linux (Debian/Ubuntu)
+```bash
+sudo apt-get install libsdl2-dev
+```
+
+### Building
+
+```bash
+# Build with SDL2 visualization
+g++ engine.cpp -o game -I/opt/homebrew/include/SDL2 -L/opt/homebrew/lib -lSDL2 -std=c++11
+```
+
+### Running the Demo
+```bash
+./game
+```
+
+## Usage Example
+
+```cpp
+// Initialize the world
+World world;
+WorldConfig config;
+initWorld(world, config);
+
+// Create a body
+Body body;
+body.position = vec2(0.0, 10.0);
+body.velocity = vec2(0.0, 0.0);
+body.mass = 1.0;
+body.inverseMass = 1.0;
+body.damping = 0.98;
+body.isStatic = false;
+body.isActive = true;
+
+// Add body to world
+addBody(world, body);
+
+// Step the simulation
+stepWorld(world, 1.0/60.0);  // 60 FPS
+```
 
 ToDo
 
