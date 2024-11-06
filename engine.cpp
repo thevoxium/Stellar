@@ -1,6 +1,8 @@
 #include <cmath>
 #include <iostream>
+#include <unordered_set>
 #include <vector>
+
 using namespace std;
 
 // Vector Operations
@@ -73,6 +75,20 @@ struct Body {
   } shape;
 };
 
+struct GridCell {
+  vector<int> bodyIndex;
+};
+
+struct Grid {
+  vector<GridCell> cells;
+  double cellSize;
+  int numRows, numCols;
+  vec2 worldMin, worldMax;
+};
+
+void updateBroadPhase(Grid &grid, const vector<Body> &bodies);
+void initGrid(Grid &grid, AABB &worldBound, double cellSize);
+
 void applyForce(Body &body, const vec2 &force) {
   if (body.isStatic || !body.isActive) {
     return;
@@ -142,11 +158,12 @@ struct WorldConfig {
 };
 
 struct World {
-  std::vector<Body> bodies;
+  vector<Body> bodies;
   WorldConfig config;
   int activeBodyCount{0};
   bool isPaused{false};
-  std::vector<int> queryResultIndices;
+  vector<int> queryResultIndices;
+  Grid grid;
 };
 
 void initWorld(World &world, const WorldConfig config = WorldConfig{}) {
@@ -155,6 +172,9 @@ void initWorld(World &world, const WorldConfig config = WorldConfig{}) {
   world.activeBodyCount = 0;
   world.isPaused = false;
   world.queryResultIndices.reserve(100);
+
+  WorldConfig copyConfig = world.config;
+  initGrid(world.grid, copyConfig.bounds, 10.0);
 }
 
 void clearWorld(World &world) {
@@ -203,6 +223,7 @@ void stepWorld(World &world, double dt) {
     return;
   dt = min(dt, world.config.maxDeltaTime);
   updatePhysics(world, dt);
+  updateBroadPhase(world.grid, world.bodies);
 }
 
 vector<int> queryBodiesInRegion(World &world, const AABB &region) {
@@ -316,29 +337,171 @@ int addBox(World &world, vec2 position, vec2 size, double mass) {
   world.bodies.push_back(body);
   return world.bodies.size() - 1;
 }
+void initGrid(Grid &grid, AABB &worldBound, double cellSize) {
+  grid.worldMin = worldBound.min;
+  grid.worldMax = worldBound.max;
+  grid.cellSize = cellSize;
 
-/**/
-/*int main() {*/
-/*  World world;*/
-/*  initWorld(world);*/
-/**/
-/*  int circleId = addCircle(world, {0, 10}, 1.0, 1.0);*/
-/*  int boxId = addBox(world, {5, 10}, {2, 2}, 2.0);*/
-/**/
-/*  Body &circle = world.bodies[circleId];*/
-/*  std::cout << "Circle area: " << calculateArea(circle) << "\n";*/
-/*  std::cout << "Circle MOI: " << calculateMOI(circle) << "\n";*/
-/**/
-/*  double fixedTimeStep = 1.0 / 60.0; // 60 Hz simulation*/
-/*  for (int i = 0; i < 100; i++) {*/
-/*    stepWorld(world, fixedTimeStep);*/
-/**/
-/*    std::cout << "Step " << i << ":\n";*/
-/*    std::cout << "Circle position: " << world.bodies[circleId].position.x*/
-/*              << ", " << world.bodies[circleId].position.y << "\n";*/
-/*    std::cout << "Box position: " << world.bodies[boxId].position.x << ", "*/
-/*              << world.bodies[boxId].position.y << "\n\n";*/
-/*  }*/
-/**/
-/*  return 0;*/
-/*}*/
+  vec2 worldSize = vec2_sub(worldBound.max, worldBound.min);
+  grid.numRows = static_cast<int>(worldSize.x / cellSize);
+  grid.numCols = static_cast<int>(worldSize.y / cellSize);
+  grid.cells.resize(grid.numRows * grid.numCols);
+}
+
+void clearGrid(Grid &grid) {
+  for (auto &cell : grid.cells) {
+    cell.bodyIndex.clear();
+  }
+}
+
+int getCellIndex(const Grid &grid, int row, int col) {
+  return row * grid.numCols + col;
+}
+
+void getGridCell(const Grid &grid, const vec2 &position, int &row, int &col) {
+  vec2 relativePos = vec2_sub(position, grid.worldMin);
+  col = static_cast<int>(relativePos.x / grid.cellSize);
+  row = static_cast<int>(relativePos.y / grid.cellSize);
+  col = max(0, min(col, grid.numCols - 1));
+  row = max(0, min(row, grid.numRows - 1));
+}
+
+void insertBodyIntoGrid(Grid &grid, int bodyIndex, const Body &body) {
+  AABB bounds = getShapeBoundingBox(body);
+
+  int startRow, startCol, endRow, endCol;
+  getGridCell(grid, bounds.min, startRow, startCol);
+  getGridCell(grid, bounds.max, endRow, endCol);
+
+  for (int row = startRow; row <= endRow; ++row) {
+    for (int col = startCol; col <= endCol; ++col) {
+      int cellIndex = getCellIndex(grid, row, col);
+      grid.cells[cellIndex].bodyIndex.push_back(bodyIndex);
+    }
+  }
+}
+
+struct BroadPhaseCollisionPair {
+  int bodyA;
+  int bodyB;
+};
+
+vector<BroadPhaseCollisionPair> getPotentialCollisionPairs(const Grid &grid) {
+  vector<BroadPhaseCollisionPair> pairs;
+
+  auto createPairKey = [](int id1, int id2) -> uint64_t {
+    if (id1 > id2)
+      swap(id1, id2);
+    return (static_cast<uint64_t>(id1) << 32) | static_cast<uint64_t>(id2);
+  };
+
+  unordered_set<uint64_t> addedPairs;
+
+  for (int row = 0; row < grid.numRows; ++row) {
+    for (int col = 0; col < grid.numCols; ++col) {
+      const auto &currentCell = grid.cells[getCellIndex(grid, row, col)];
+
+      for (size_t i = 0; i < currentCell.bodyIndex.size(); ++i) {
+        for (size_t j = i + 1; j < currentCell.bodyIndex.size(); ++j) {
+          int id1 = currentCell.bodyIndex[i];
+          int id2 = currentCell.bodyIndex[j];
+          uint64_t pairKey = createPairKey(id1, id2);
+
+          if (addedPairs.insert(pairKey).second) {
+            pairs.push_back({id1, id2});
+          }
+        }
+      }
+
+      const int dx[] = {1, 1, 0, -1};
+      const int dy[] = {0, 1, 1, 1};
+
+      for (int dir = 0; dir < 4; ++dir) {
+        int newCol = col + dx[dir];
+        int newRow = row + dy[dir];
+
+        if (newCol >= 0 && newCol < grid.numCols && newRow >= 0 &&
+            newRow < grid.numRows) {
+
+          const auto &adjacentCell =
+              grid.cells[getCellIndex(grid, newRow, newCol)];
+
+          for (int id1 : currentCell.bodyIndex) {
+            for (int id2 : adjacentCell.bodyIndex) {
+              uint64_t pairKey = createPairKey(id1, id2);
+
+              if (addedPairs.insert(pairKey).second) {
+                pairs.push_back({id1, id2});
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return pairs;
+}
+
+void updateBroadPhase(Grid &grid, const vector<Body> &bodies) {
+  clearGrid(grid);
+  for (size_t i = 0; i < bodies.size(); ++i) {
+    if (bodies[i].isActive) {
+      insertBodyIntoGrid(grid, i, bodies[i]);
+    }
+  }
+}
+
+int main() {
+  World world;
+  initWorld(world);
+
+  int circle1Id = addCircle(world, {0, 10}, 1.0, 1.0);
+  int circle2Id = addCircle(world, {2, 5}, 1.0, 1.0);
+  int boxId1 = addBox(world, {8, 9}, {2, 2}, 2.0);
+  int boxId2 = addBox(world, {3, 1}, {2, 2}, 2.0);
+
+  Body &circle1 = world.bodies[circle1Id];
+  cout << "Circle1 area: " << calculateArea(circle1) << "\n";
+  cout << "Circle1 MOI: " << calculateMOI(circle1) << "\n\n";
+
+  double fixedTimeStep = 1.0 / 60.0; // 60 Hz simulation
+
+  for (int i = 0; i < 100; i++) {
+    stepWorld(world, fixedTimeStep);
+
+    vector<BroadPhaseCollisionPair> collisionPairs =
+        getPotentialCollisionPairs(world.grid);
+
+    cout << "Step " << i << ":\n";
+    cout << "Circle1 position: " << world.bodies[circle1Id].position.x << ", "
+         << world.bodies[circle1Id].position.y << "\n";
+    cout << "Circle2 position: " << world.bodies[circle2Id].position.x << ", "
+         << world.bodies[circle2Id].position.y << "\n";
+    cout << "Box1 position: " << world.bodies[boxId1].position.x << ", "
+         << world.bodies[boxId1].position.y << "\n";
+    cout << "Box2 position: " << world.bodies[boxId2].position.x << ", "
+         << world.bodies[boxId2].position.y << "\n";
+
+    cout << "Potential collisions: " << collisionPairs.size() << " pairs\n";
+    for (const auto &pair : collisionPairs) {
+      cout << "Body " << pair.bodyA << " might collide with Body " << pair.bodyB
+           << "\n";
+    }
+    cout << "\n";
+
+    if (i % 20 == 0) { // Print every 20 steps to avoid too much output
+      cout << "Grid cell occupancy:\n";
+      for (int row = world.grid.numRows - 1; row >= 0; --row) {
+        for (int col = 0; col < world.grid.numCols; ++col) {
+          int cellIndex = getCellIndex(world.grid, row, col);
+          cout << world.grid.cells[cellIndex].bodyIndex.size() << " ";
+        }
+        cout << "\n";
+      }
+      cout << "\n";
+    }
+  }
+
+  return 0;
+}
