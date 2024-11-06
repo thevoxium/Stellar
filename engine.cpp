@@ -46,12 +46,31 @@ void vec2_rotate(vec2 &a, const double &theta) {
   a.y = original_x * sin(theta) + a.y * cos(theta);
 }
 
-// Body Defination
+// Body Definition
+
+struct AABB {
+  vec2 min, max;
+};
+
+struct Circle {
+  vec2 center;
+  double radius;
+};
 
 struct Body {
   vec2 position, velocity, acceleration, forceAccumulator;
-  double mass, inverseMass, damping;
+  double mass, inverseMass, damping, angle;
   bool isStatic, isActive;
+
+  enum ShapeType {
+    SHAPE_CIRCLE,
+    SHAPE_AABB,
+  } shapeType;
+
+  union {
+    Circle circle;
+    AABB aabb;
+  } shape;
 };
 
 void applyForce(Body &body, const vec2 &force) {
@@ -93,12 +112,18 @@ void integrateLinearMotion(Body &body, double dt) {
   body.velocity = vec2_mul(body.velocity, pow(body.damping, dt));
   vec2 deltaP = vec2_mul(body.velocity, dt);
   body.position = vec2_add(body.position, deltaP);
+
+  if (body.shapeType == Body::SHAPE_CIRCLE) {
+    body.shape.circle.center = body.position;
+  } else {
+    vec2 halfSize =
+        vec2_mul(vec2_sub(body.shape.aabb.max, body.shape.aabb.min), 0.5);
+    body.shape.aabb.min = vec2_sub(body.position, halfSize);
+    body.shape.aabb.max = vec2_add(body.position, halfSize);
+  }
+
   clearForces(body);
 }
-
-struct AABB {
-  vec2 min, max;
-};
 
 struct WorldConfig {
   vec2 gravity;
@@ -192,4 +217,127 @@ vector<int> queryBodiesInRegion(World &world, const AABB &region) {
     }
   }
   return world.queryResultIndices;
+}
+
+double calculateArea(const Body &body) {
+  if (body.shapeType == Body::SHAPE_CIRCLE) {
+    return M_PI * body.shape.circle.radius * body.shape.circle.radius;
+  } else {
+    vec2 size = vec2_sub(body.shape.aabb.max, body.shape.aabb.min);
+    return size.x * size.y;
+  }
+  return 0.0;
+}
+
+double calculateMOI(const Body &body) {
+  if (body.shapeType == Body::SHAPE_CIRCLE) {
+    return 0.5 * body.mass * body.shape.circle.radius *
+           body.shape.circle.radius;
+  } else {
+    vec2 size = vec2_sub(body.shape.aabb.max, body.shape.aabb.min);
+    return body.mass * (size.x * size.x + size.y * size.y) / 12;
+  }
+}
+
+AABB getShapeBoundingBox(const Body &body) {
+  if (body.shapeType == Body::SHAPE_CIRCLE) {
+    return {{body.position.x - body.shape.circle.radius,
+             body.position.y - body.shape.circle.radius},
+            {body.position.x + body.shape.circle.radius,
+             body.position.y + body.shape.circle.radius}};
+  }
+  return body.shape.aabb; // AABB already represents its bounding box
+}
+
+bool containsPoint(const Body &body, const vec2 &point) {
+  if (body.shapeType == Body::SHAPE_CIRCLE) {
+    vec2 diff = vec2_sub(point, body.position);
+    return vec2_length_squared(diff) <=
+           body.shape.circle.radius * body.shape.circle.radius;
+  } else {
+    return point.x >= body.shape.aabb.min.x &&
+           point.x <= body.shape.aabb.max.x &&
+           point.y >= body.shape.aabb.min.y && point.y <= body.shape.aabb.max.y;
+  }
+  return false;
+}
+
+vec2 getFurthestPoint(const Body &body, vec2 direction) {
+  vec2_normalize(direction);
+  if (body.shapeType == Body::SHAPE_CIRCLE) {
+    return vec2_add(body.position,
+                    vec2_mul(direction, body.shape.circle.radius));
+  } else {
+    vec2 result = body.position;
+    result.x += (direction.x >= 0) ? (body.shape.aabb.max.x - body.position.x)
+                                   : (body.shape.aabb.min.x - body.position.x);
+    result.y += (direction.y >= 0) ? (body.shape.aabb.max.y - body.position.y)
+                                   : (body.shape.aabb.min.y - body.position.y);
+    return result;
+  }
+  return body.position;
+}
+
+int addCircle(World &world, vec2 position, double radius, double mass) {
+  Body body{};
+  body.position = position;
+  body.velocity = {0, 0};
+  body.acceleration = {0, 0};
+  body.mass = mass;
+  body.inverseMass = mass > 0.0 ? 1.0 / mass : 0.0;
+  body.damping = 0.99;
+  body.isStatic = mass <= 0;
+  body.isActive = true;
+  body.angle = 0.0;
+  body.forceAccumulator = {0, 0};
+
+  body.shapeType = Body::SHAPE_CIRCLE;
+  body.shape.circle = {position, radius};
+
+  world.bodies.push_back(body);
+  return world.bodies.size() - 1;
+}
+int addBox(World &world, vec2 position, vec2 size, double mass) {
+  Body body{};
+  body.position = position;
+  body.velocity = {0, 0};
+  body.acceleration = {0, 0};
+  body.mass = mass;
+  body.inverseMass = mass > 0 ? 1.0 / mass : 0;
+  body.damping = 0.99;
+  body.isStatic = mass <= 0;
+  body.isActive = true;
+  body.angle = 0;
+
+  body.shapeType = Body::SHAPE_AABB;
+  body.shape.aabb = {{position.x - size.x / 2, position.y - size.y / 2},
+                     {position.x + size.x / 2, position.y + size.y / 2}};
+
+  world.bodies.push_back(body);
+  return world.bodies.size() - 1;
+}
+
+int main() {
+  World world;
+  initWorld(world);
+
+  int circleId = addCircle(world, {0, 10}, 1.0, 1.0);
+  int boxId = addBox(world, {5, 10}, {2, 2}, 2.0);
+
+  Body &circle = world.bodies[circleId];
+  std::cout << "Circle area: " << calculateArea(circle) << "\n";
+  std::cout << "Circle MOI: " << calculateMOI(circle) << "\n";
+
+  double fixedTimeStep = 1.0 / 60.0; // 60 Hz simulation
+  for (int i = 0; i < 100; i++) {
+    stepWorld(world, fixedTimeStep);
+
+    std::cout << "Step " << i << ":\n";
+    std::cout << "Circle position: " << world.bodies[circleId].position.x
+              << ", " << world.bodies[circleId].position.y << "\n";
+    std::cout << "Box position: " << world.bodies[boxId].position.x << ", "
+              << world.bodies[boxId].position.y << "\n\n";
+  }
+
+  return 0;
 }

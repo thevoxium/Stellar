@@ -66,25 +66,25 @@ ToDo
 
 Vector Implementations are Done!
 
-- Vector2D struct definition (x, y components)
-- Vector operation functions:
-  - vec2_add, vec2_sub, vec2_mul
-  - vec2_dot, vec2_cross
-  - vec2_normalize
-  - vec2_rotate
-  - vec2_length, vec2_length_squared
+- ~~Vector2D struct definition (x, y components)~~
+- ~~Vector operation functions:~~
+  - ~~vec2_add, vec2_sub, vec2_mul~~
+  - ~~vec2_dot, vec2_cross~~
+  - ~~vec2_normalize~~
+  - ~~vec2_rotate~~
+  - ~~vec2_length, vec2_length_squared~~
 
 Basic Motion Implementation is Done!
 
 ### Basic Motion
-- Body struct (position, velocity, acceleration)
-- Force functions:
-  - apply_force
-  - apply_impulse
-- Integration functions:
-  - integrate_linear_motion
-  - apply_gravity
-- World struct to hold all bodies
+- ~~Body struct (position, velocity, acceleration)~~
+- ~~Force functions:~~
+  - ~~apply_force~~
+  - ~~apply_impulse~~
+- ~~Integration functions:~~
+  - ~~integrate_linear_motion~~
+  - ~~apply_gravity~~
+- ~~World struct to hold all bodies~~
 
 ## Phase 2: Shapes and Collision Detection
 ### Basic Shapes
