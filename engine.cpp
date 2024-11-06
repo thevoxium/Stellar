@@ -317,27 +317,28 @@ int addBox(World &world, vec2 position, vec2 size, double mass) {
   return world.bodies.size() - 1;
 }
 
-int main() {
-  World world;
-  initWorld(world);
-
-  int circleId = addCircle(world, {0, 10}, 1.0, 1.0);
-  int boxId = addBox(world, {5, 10}, {2, 2}, 2.0);
-
-  Body &circle = world.bodies[circleId];
-  std::cout << "Circle area: " << calculateArea(circle) << "\n";
-  std::cout << "Circle MOI: " << calculateMOI(circle) << "\n";
-
-  double fixedTimeStep = 1.0 / 60.0; // 60 Hz simulation
-  for (int i = 0; i < 100; i++) {
-    stepWorld(world, fixedTimeStep);
-
-    std::cout << "Step " << i << ":\n";
-    std::cout << "Circle position: " << world.bodies[circleId].position.x
-              << ", " << world.bodies[circleId].position.y << "\n";
-    std::cout << "Box position: " << world.bodies[boxId].position.x << ", "
-              << world.bodies[boxId].position.y << "\n\n";
-  }
-
-  return 0;
-}
+/**/
+/*int main() {*/
+/*  World world;*/
+/*  initWorld(world);*/
+/**/
+/*  int circleId = addCircle(world, {0, 10}, 1.0, 1.0);*/
+/*  int boxId = addBox(world, {5, 10}, {2, 2}, 2.0);*/
+/**/
+/*  Body &circle = world.bodies[circleId];*/
+/*  std::cout << "Circle area: " << calculateArea(circle) << "\n";*/
+/*  std::cout << "Circle MOI: " << calculateMOI(circle) << "\n";*/
+/**/
+/*  double fixedTimeStep = 1.0 / 60.0; // 60 Hz simulation*/
+/*  for (int i = 0; i < 100; i++) {*/
+/*    stepWorld(world, fixedTimeStep);*/
+/**/
+/*    std::cout << "Step " << i << ":\n";*/
+/*    std::cout << "Circle position: " << world.bodies[circleId].position.x*/
+/*              << ", " << world.bodies[circleId].position.y << "\n";*/
+/*    std::cout << "Box position: " << world.bodies[boxId].position.x << ", "*/
+/*              << world.bodies[boxId].position.y << "\n\n";*/
+/*  }*/
+/**/
+/*  return 0;*/
+/*}*/

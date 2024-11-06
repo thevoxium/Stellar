@@ -26,7 +26,7 @@ sudo apt-get install libsdl2-dev
 
 ```bash
 # Build with SDL2 visualization
-g++ engine.cpp -o game -I/opt/homebrew/include/SDL2 -L/opt/homebrew/lib -lSDL2 -std=c++11
+g++ test_game.cpp -std=c++11 -o game -I/opt/homebrew/include -L/opt/homebrew/lib -lSDL2
 ```
 
 ### Running the Demo
@@ -37,26 +37,32 @@ g++ engine.cpp -o game -I/opt/homebrew/include/SDL2 -L/opt/homebrew/lib -lSDL2 -
 ## Usage Example
 
 ```cpp
-// Initialize the world
-World world;
-WorldConfig config;
-initWorld(world, config);
 
-// Create a body
-Body body;
-body.position = vec2(0.0, 10.0);
-body.velocity = vec2(0.0, 0.0);
-body.mass = 1.0;
-body.inverseMass = 1.0;
-body.damping = 0.98;
-body.isStatic = false;
-body.isActive = true;
+int main() {
+  World world;
+  initWorld(world);
 
-// Add body to world
-addBody(world, body);
+  int circleId = addCircle(world, {0, 10}, 1.0, 1.0);
+  int boxId = addBox(world, {5, 10}, {2, 2}, 2.0);
 
-// Step the simulation
-stepWorld(world, 1.0/60.0);  // 60 FPS
+  Body &circle = world.bodies[circleId];
+  std::cout << "Circle area: " << calculateArea(circle) << "\n";
+  std::cout << "Circle MOI: " << calculateMOI(circle) << "\n";
+
+  double fixedTimeStep = 1.0 / 60.0; // 60 Hz simulation
+  for (int i = 0; i < 100; i++) {
+    stepWorld(world, fixedTimeStep);
+
+    std::cout << "Step " << i << ":\n";
+    std::cout << "Circle position: " << world.bodies[circleId].position.x
+              << ", " << world.bodies[circleId].position.y << "\n";
+    std::cout << "Box position: " << world.bodies[boxId].position.x << ", "
+              << world.bodies[boxId].position.y << "\n\n";
+  }
+
+  return 0;
+}
+
 ```
 
 ToDo
@@ -88,11 +94,11 @@ Basic Motion Implementation is Done!
 
 ## Phase 2: Shapes and Collision Detection
 ### Basic Shapes
-- Circle struct (position, radius)
-- AABB struct (min, max points)
+- ~~Circle struct (position, radius)~~
+- ~~AABB struct (min, max points)~~
 - Polygon struct (vertex array, vertex count)
-- Shape union struct with type enum
-- Point containment test functions
+- ~~Shape union struct with type enum~~
+- ~~Point containment test functions~~
 
 ### Collision Detection
 - Broad phase functions:
