@@ -81,6 +81,7 @@ int main() {
   World world;
   initWorld(world);
 
+  addBox(world, {0, -10}, {40, 1}, 0.0);
   addCircle(world, {0, 10}, 1.0, 1.0);
   addBox(world, {5, 15}, {2, 2}, 2.0);
   addCircle(world, {-3, 20}, 0.8, 0.5);
@@ -118,6 +119,12 @@ int main() {
     lastTime = currentTime;
 
     stepWorld(world, fixedTimeStep);
+    vector<BroadPhaseCollisionPair> potentialPairs =
+        getPotentialCollisionPairs(world.grid);
+    vector<BroadPhaseCollisionPair> actualCollisions =
+        getActualCollisions(potentialPairs, world.bodies);
+
+    resolveCollisions(actualCollisions, world.bodies);
 
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);

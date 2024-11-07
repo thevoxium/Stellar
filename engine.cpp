@@ -452,56 +452,71 @@ void updateBroadPhase(Grid &grid, const vector<Body> &bodies) {
   }
 }
 
-int main() {
-  World world;
-  initWorld(world);
+bool circleCircleCollision(const Circle &c1, const Circle &c2) {
+  vec2 diff = vec2_sub(c1.center, c2.center);
+  double distSq = vec2_length_squared(diff);
+  double radiusSum = c1.radius + c2.radius;
+  return distSq <= radiusSum * radiusSum;
+}
 
-  int circle1Id = addCircle(world, {0, 10}, 1.0, 1.0);
-  int circle2Id = addCircle(world, {2, 5}, 1.0, 1.0);
-  int boxId1 = addBox(world, {8, 9}, {2, 2}, 2.0);
-  int boxId2 = addBox(world, {3, 1}, {2, 2}, 2.0);
+bool aabbAabbCollision(const AABB &aabb1, const AABB &aabb2) {
+  if (aabb1.max.x < aabb2.min.x || aabb1.min.x > aabb2.max.x)
+    return false;
+  if (aabb1.max.y < aabb2.min.y || aabb1.min.y > aabb2.max.y)
+    return false;
+  return true;
+}
 
-  Body &circle1 = world.bodies[circle1Id];
-  cout << "Circle1 area: " << calculateArea(circle1) << "\n";
-  cout << "Circle1 MOI: " << calculateMOI(circle1) << "\n\n";
+bool circleAabbCollision(const Circle &c, const AABB &aabb) {
+  double closestX = max(aabb.min.x, min(c.center.x, aabb.max.x));
+  double closestY = max(aabb.min.y, min(c.center.y, aabb.max.y));
 
-  double fixedTimeStep = 1.0 / 60.0; // 60 Hz simulation
+  double distanceX = c.center.x - closestX;
+  double distanceY = c.center.y - closestY;
 
-  for (int i = 0; i < 100; i++) {
-    stepWorld(world, fixedTimeStep);
+  double distanceSquared = distanceX * distanceX + distanceY * distanceY;
+  return distanceSquared <= (c.radius * c.radius);
+}
 
-    vector<BroadPhaseCollisionPair> collisionPairs =
-        getPotentialCollisionPairs(world.grid);
+bool checkCollision(const Body &bodyA, const Body &bodyB) {
+  if (bodyA.shapeType == Body::SHAPE_CIRCLE &&
+      bodyB.shapeType == Body::SHAPE_CIRCLE) {
+    return circleCircleCollision(bodyA.shape.circle, bodyB.shape.circle);
+  } else if (bodyA.shapeType == Body::SHAPE_AABB &&
+             bodyB.shapeType == Body::SHAPE_AABB) {
+    return aabbAabbCollision(bodyA.shape.aabb, bodyB.shape.aabb);
+  } else if (bodyA.shapeType == Body::SHAPE_CIRCLE &&
+             bodyB.shapeType == Body::SHAPE_AABB) {
+    return circleAabbCollision(bodyA.shape.circle, bodyB.shape.aabb);
+  } else if (bodyA.shapeType == Body::SHAPE_AABB &&
+             bodyB.shapeType == Body::SHAPE_CIRCLE) {
+    return circleAabbCollision(bodyB.shape.circle, bodyA.shape.aabb);
+  }
+  return false;
+}
 
-    cout << "Step " << i << ":\n";
-    cout << "Circle1 position: " << world.bodies[circle1Id].position.x << ", "
-         << world.bodies[circle1Id].position.y << "\n";
-    cout << "Circle2 position: " << world.bodies[circle2Id].position.x << ", "
-         << world.bodies[circle2Id].position.y << "\n";
-    cout << "Box1 position: " << world.bodies[boxId1].position.x << ", "
-         << world.bodies[boxId1].position.y << "\n";
-    cout << "Box2 position: " << world.bodies[boxId2].position.x << ", "
-         << world.bodies[boxId2].position.y << "\n";
-
-    cout << "Potential collisions: " << collisionPairs.size() << " pairs\n";
-    for (const auto &pair : collisionPairs) {
-      cout << "Body " << pair.bodyA << " might collide with Body " << pair.bodyB
-           << "\n";
-    }
-    cout << "\n";
-
-    if (i % 20 == 0) { // Print every 20 steps to avoid too much output
-      cout << "Grid cell occupancy:\n";
-      for (int row = world.grid.numRows - 1; row >= 0; --row) {
-        for (int col = 0; col < world.grid.numCols; ++col) {
-          int cellIndex = getCellIndex(world.grid, row, col);
-          cout << world.grid.cells[cellIndex].bodyIndex.size() << " ";
-        }
-        cout << "\n";
-      }
-      cout << "\n";
+vector<BroadPhaseCollisionPair>
+getActualCollisions(const vector<BroadPhaseCollisionPair> &potentialPairs,
+                    const vector<Body> &bodies) {
+  vector<BroadPhaseCollisionPair> actualCollisions;
+  for (const auto &pair : potentialPairs) {
+    const Body &bodyA = bodies[pair.bodyA];
+    const Body &bodyB = bodies[pair.bodyB];
+    if (checkCollision(bodyA, bodyB)) {
+      actualCollisions.push_back(pair);
     }
   }
+  return actualCollisions;
+}
 
-  return 0;
+void resolveCollisions(vector<BroadPhaseCollisionPair> &collisions,
+                       vector<Body> &bodies) {
+  for (const auto &pair : collisions) {
+    Body &bodyA = bodies[pair.bodyA];
+    Body &bodyB = bodies[pair.bodyB];
+
+    vec2 temp = bodyA.velocity;
+    bodyA.velocity = bodyB.velocity;
+    bodyB.velocity = temp;
+  }
 }
