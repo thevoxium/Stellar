@@ -545,6 +545,120 @@ void resolveCircleCircleCollision(Body &a, Body &b) {
   }
 }
 
+void resolveAABBCollision(Body &a, Body &b) {
+  // Calculate centers and half-sizes
+  vec2 centerA = a.position;
+  vec2 centerB = b.position;
+  vec2 halfSizeA = vec2_mul(vec2_sub(a.shape.aabb.max, a.shape.aabb.min), 0.5);
+  vec2 halfSizeB = vec2_mul(vec2_sub(b.shape.aabb.max, b.shape.aabb.min), 0.5);
+
+  // Calculate delta between centers
+  vec2 delta = vec2_sub(centerB, centerA);
+
+  // Calculate overlap on each axis
+  vec2 overlap = {halfSizeA.x + halfSizeB.x - fabs(delta.x),
+                  halfSizeA.y + halfSizeB.y - fabs(delta.y)};
+
+  // Determine collision normal based on smallest overlap
+  vec2 normal;
+  double penetration;
+  if (overlap.x > 0 && overlap.y > 0) {
+    if (overlap.x < overlap.y) {
+      normal = (delta.x < 0) ? (vec2){-1.0, 0.0} : (vec2){1.0, 0.0};
+      penetration = overlap.x;
+    } else {
+      normal = (delta.y < 0) ? (vec2){0.0, -1.0} : (vec2){0.0, 1.0};
+      penetration = overlap.y;
+    }
+
+    // Calculate relative velocity
+    vec2 relativeVel = vec2_sub(b.velocity, a.velocity);
+    double normalVel = vec2_dot(relativeVel, normal);
+
+    // Only resolve if objects are moving toward each other
+    const double MIN_VELOCITY = 0.01;
+    if (normalVel > -MIN_VELOCITY) {
+      // Objects moving apart or too slow - just correct position
+      if (!a.isStatic) {
+        a.position = vec2_sub(a.position, vec2_mul(normal, penetration * 0.5));
+      }
+      if (!b.isStatic) {
+        b.position = vec2_add(b.position, vec2_mul(normal, penetration * 0.5));
+      }
+      return;
+    }
+
+    // Calculate impulse
+    const double RESTITUTION = 0.3;
+    double totalInverseMass = a.inverseMass + b.inverseMass;
+    if (totalInverseMass <= 0)
+      return;
+
+    // Apply restitution based on velocity
+    double restitution = vec2_length(relativeVel) < 2.0 ? 0.0 : RESTITUTION;
+    double j = -(1.0 + restitution) * normalVel / totalInverseMass;
+
+    // Apply impulse
+    vec2 impulse = vec2_mul(normal, j);
+    if (!a.isStatic) {
+      a.velocity = vec2_sub(a.velocity, vec2_mul(impulse, a.inverseMass));
+    }
+    if (!b.isStatic) {
+      b.velocity = vec2_add(b.velocity, vec2_mul(impulse, b.inverseMass));
+    }
+
+    // Apply friction
+    const double FRICTION = 0.4;
+    vec2 tangent = {relativeVel.x - normalVel * normal.x,
+                    relativeVel.y - normalVel * normal.y};
+    double tangentLen = vec2_length(tangent);
+    if (tangentLen > MIN_VELOCITY) {
+      tangent = vec2_mul(tangent, 1.0 / tangentLen);
+      double jt = -vec2_dot(relativeVel, tangent) / totalInverseMass;
+
+      // Apply friction impulse
+      vec2 frictionImpulse = vec2_mul(tangent, jt * FRICTION);
+      if (!a.isStatic) {
+        a.velocity =
+            vec2_sub(a.velocity, vec2_mul(frictionImpulse, a.inverseMass));
+      }
+      if (!b.isStatic) {
+        b.velocity =
+            vec2_add(b.velocity, vec2_mul(frictionImpulse, b.inverseMass));
+      }
+    }
+
+    // Position correction
+    const double CORRECTION_PERCENT = 0.8;
+    vec2 correction =
+        vec2_mul(normal, (penetration / totalInverseMass) * CORRECTION_PERCENT);
+
+    if (!a.isStatic) {
+      a.position = vec2_sub(a.position, vec2_mul(correction, a.inverseMass));
+    }
+    if (!b.isStatic) {
+      b.position = vec2_add(b.position, vec2_mul(correction, b.inverseMass));
+    }
+
+    // Update AABB positions
+    if (!a.isStatic) {
+      vec2 halfSize =
+          vec2_mul(vec2_sub(a.shape.aabb.max, a.shape.aabb.min), 0.5);
+      a.shape.aabb.min = vec2_sub(a.position, halfSize);
+      a.shape.aabb.max = vec2_add(a.position, halfSize);
+    }
+
+    if (!b.isStatic) {
+      vec2 halfSize =
+          vec2_mul(vec2_sub(b.shape.aabb.max, b.shape.aabb.min), 0.5);
+      b.shape.aabb.min = vec2_sub(b.position, halfSize);
+      b.shape.aabb.max = vec2_add(b.position, halfSize);
+    }
+  }
+}
+
+void resolveCircleAABBCollision(Body &circle, Body &box, bool isCircleA) {}
+
 void resolveCollisions(vector<BroadPhaseCollisionPair> &collisions,
                        vector<Body> &bodies) {
   for (const auto &pair : collisions) {
@@ -553,8 +667,16 @@ void resolveCollisions(vector<BroadPhaseCollisionPair> &collisions,
 
     if (bodyA.shapeType == Body::SHAPE_CIRCLE &&
         bodyB.shapeType == Body::SHAPE_CIRCLE) {
-      cout << "Resolving Cirle" << endl;
       resolveCircleCircleCollision(bodyA, bodyB);
+    } else if (bodyA.shapeType == Body::SHAPE_AABB &&
+               bodyB.shapeType == Body::SHAPE_AABB) {
+      resolveAABBCollision(bodyA, bodyB);
+    } else {
+      if (bodyA.shapeType == Body::SHAPE_CIRCLE) {
+        resolveCircleAABBCollision(bodyA, bodyB, true);
+      } else {
+        resolveCircleAABBCollision(bodyB, bodyA, false);
+      }
     }
   }
 }
