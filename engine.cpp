@@ -7,6 +7,8 @@ using namespace std;
 
 // Vector Operations
 
+const double e = 0.2; // Restitution
+
 struct vec2 {
   double x;
   double y;
@@ -126,9 +128,9 @@ void integrateLinearMotion(Body &body, double dt) {
   vec2 deltaVelocity = vec2_mul(body.acceleration, dt);
   body.velocity = vec2_add(body.velocity, deltaVelocity);
   body.velocity = vec2_mul(body.velocity, pow(body.damping, dt));
-  vec2 deltaP = vec2_mul(body.velocity, dt);
+  vec2 deltaP = vec2_add(vec2_mul(body.velocity, dt),
+                         vec2_mul(body.acceleration, 0.5 * dt * dt));
   body.position = vec2_add(body.position, deltaP);
-
   if (body.shapeType == Body::SHAPE_CIRCLE) {
     body.shape.circle.center = body.position;
   } else {
@@ -509,14 +511,50 @@ getActualCollisions(const vector<BroadPhaseCollisionPair> &potentialPairs,
   return actualCollisions;
 }
 
+void resolveCircleCircleCollision(Body &a, Body &b) {
+  vec2 distance = vec2_sub(b.position, a.position);
+  vec2 normalVector = distance;
+  vec2_normalize(normalVector);
+  vec2 tangentVector = {-1.0 * normalVector.y, normalVector.x};
+
+  vec2 relativeVelocity = vec2_sub(b.velocity, a.velocity);
+  double velocitySeperation = vec2_dot(relativeVelocity, normalVector);
+
+  double impulse =
+      -1.0 * (1 + e) / (a.inverseMass + b.inverseMass) * velocitySeperation;
+  a.velocity =
+      vec2_sub(a.velocity, vec2_mul(normalVector, impulse * a.inverseMass));
+  b.velocity =
+      vec2_add(b.velocity, vec2_mul(normalVector, impulse * b.inverseMass));
+
+  const double k = 0.4; // position correction factor (can be adjusted)
+  double totalRadius = a.shape.circle.radius + b.shape.circle.radius;
+  double penetrationDepth = totalRadius - vec2_length(distance);
+
+  if (penetrationDepth > 0) {
+    vec2 correction = vec2_mul(
+        normalVector, (k * penetrationDepth) / (a.inverseMass + b.inverseMass));
+
+    // Only move if body isn't static
+    if (!a.isStatic) {
+      a.position = vec2_sub(a.position, vec2_mul(correction, a.inverseMass));
+    }
+    if (!b.isStatic) {
+      b.position = vec2_add(b.position, vec2_mul(correction, b.inverseMass));
+    }
+  }
+}
+
 void resolveCollisions(vector<BroadPhaseCollisionPair> &collisions,
                        vector<Body> &bodies) {
   for (const auto &pair : collisions) {
     Body &bodyA = bodies[pair.bodyA];
     Body &bodyB = bodies[pair.bodyB];
 
-    vec2 temp = bodyA.velocity;
-    bodyA.velocity = bodyB.velocity;
-    bodyB.velocity = temp;
+    if (bodyA.shapeType == Body::SHAPE_CIRCLE &&
+        bodyB.shapeType == Body::SHAPE_CIRCLE) {
+      cout << "Resolving Cirle" << endl;
+      resolveCircleCircleCollision(bodyA, bodyB);
+    }
   }
 }
