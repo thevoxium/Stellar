@@ -102,13 +102,13 @@ Basic Motion Implementation is Done!
 
 ### Collision Detection
 - Broad phase functions:
-  - grid_system struct and functions
+  - ~~grid_system struct and functions~~
   - quadtree struct and functions
 - Collision pair struct
 - Narrow phase functions:
-  - check_circle_circle
-  - check_aabb_aabb
-  - check_circle_aabb
+  - ~~check_circle_circle~~
+  - ~~check_aabb_aabb~~
+  - ~~check_circle_aabb~~
   - check_polygon_polygon (SAT)
 
 ## Phase 3: Collision Response
