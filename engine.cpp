@@ -657,7 +657,147 @@ void resolveAABBCollision(Body &a, Body &b) {
   }
 }
 
-void resolveCircleAABBCollision(Body &circle, Body &box, bool isCircleA) {}
+void resolveCircleAABBCollision(Body &circleBody, Body &aabbBody,
+                                bool circleIsA) {
+  // Ensure we're working with the right shapes
+  if (circleBody.shapeType != Body::SHAPE_CIRCLE ||
+      aabbBody.shapeType != Body::SHAPE_AABB) {
+    return;
+  }
+
+  // 1. Find closest point on AABB to circle center
+  vec2 closestPoint = {
+      max(aabbBody.shape.aabb.min.x,
+          min(circleBody.position.x, aabbBody.shape.aabb.max.x)),
+      max(aabbBody.shape.aabb.min.y,
+          min(circleBody.position.y, aabbBody.shape.aabb.max.y))};
+
+  // 2. Calculate distance vector from closest point to circle center
+  vec2 distance = vec2_sub(circleBody.position, closestPoint);
+  double distanceMag = vec2_length(distance);
+
+  // Skip if no collision
+  if (distanceMag > circleBody.shape.circle.radius) {
+    return;
+  }
+
+  // 3. Calculate normal vector
+  vec2 normal;
+  const double EPSILON = 0.0001;
+  if (distanceMag < EPSILON) {
+    // Circle center is inside AABB, use vector from AABB center to circle
+    // center
+    vec2 aabbCenter = {
+        (aabbBody.shape.aabb.min.x + aabbBody.shape.aabb.max.x) * 0.5,
+        (aabbBody.shape.aabb.min.y + aabbBody.shape.aabb.max.y) * 0.5};
+    distance = vec2_sub(circleBody.position, aabbCenter);
+    distanceMag = vec2_length(distance);
+    if (distanceMag < EPSILON) {
+      // Objects are at same position, use arbitrary normal
+      normal = {0.0, 1.0};
+    } else {
+      normal = vec2_mul(distance, 1.0 / distanceMag);
+    }
+  } else {
+    normal = vec2_mul(distance, 1.0 / distanceMag);
+  }
+
+  // 4. Calculate penetration depth
+  double penetrationDepth = circleBody.shape.circle.radius - distanceMag;
+
+  // 5. Calculate relative velocity
+  vec2 relativeVel = vec2_sub(circleBody.velocity, aabbBody.velocity);
+
+  // 6. Calculate impact speed
+  double impactSpeed = vec2_dot(relativeVel, normal);
+
+  // Only resolve if objects are moving toward each other
+  const double MIN_VELOCITY = 0.01;
+  if (impactSpeed > -MIN_VELOCITY) {
+    // Objects moving apart or too slow - just correct position
+    const double POSITION_CORRECTION = 0.8;
+    double totalInverseMass = circleBody.inverseMass + aabbBody.inverseMass;
+    if (totalInverseMass > 0) {
+      vec2 correction = vec2_mul(normal, (penetrationDepth / totalInverseMass) *
+                                             POSITION_CORRECTION);
+      if (!circleBody.isStatic) {
+        circleBody.position = vec2_add(
+            circleBody.position, vec2_mul(correction, circleBody.inverseMass));
+      }
+      if (!aabbBody.isStatic) {
+        aabbBody.position = vec2_sub(
+            aabbBody.position, vec2_mul(correction, aabbBody.inverseMass));
+      }
+    }
+    return;
+  }
+
+  // 7. Calculate impulse
+  double totalInverseMass = circleBody.inverseMass + aabbBody.inverseMass;
+  if (totalInverseMass <= 0)
+    return;
+
+  // Apply restitution based on velocity
+  double restitution = vec2_length(relativeVel) < 2.0 ? 0.0 : e;
+  double j = -(1.0 + restitution) * impactSpeed / totalInverseMass;
+
+  // 8. Apply impulse to velocities
+  vec2 impulse = vec2_mul(normal, j);
+  if (!circleBody.isStatic) {
+    circleBody.velocity = vec2_add(circleBody.velocity,
+                                   vec2_mul(impulse, circleBody.inverseMass));
+  }
+  if (!aabbBody.isStatic) {
+    aabbBody.velocity =
+        vec2_sub(aabbBody.velocity, vec2_mul(impulse, aabbBody.inverseMass));
+  }
+
+  // 9. Position correction
+  const double POSITION_CORRECTION = 0.8;
+  vec2 correction = vec2_mul(normal, (penetrationDepth / totalInverseMass) *
+                                         POSITION_CORRECTION);
+  if (!circleBody.isStatic) {
+    circleBody.position = vec2_add(
+        circleBody.position, vec2_mul(correction, circleBody.inverseMass));
+  }
+  if (!aabbBody.isStatic) {
+    aabbBody.position =
+        vec2_sub(aabbBody.position, vec2_mul(correction, aabbBody.inverseMass));
+  }
+
+  // 10. Apply friction
+  const double FRICTION = 0.4;
+  vec2 tangent = {-normal.y, normal.x}; // Perpendicular to normal
+  double tangentSpeed = vec2_dot(relativeVel, tangent);
+
+  // Calculate and clamp friction impulse
+  double frictionImpulse = -tangentSpeed / totalInverseMass;
+  double maxFriction = FRICTION * fabs(j);
+  frictionImpulse = max(-maxFriction, min(frictionImpulse, maxFriction));
+
+  vec2 frictionVector = vec2_mul(tangent, frictionImpulse);
+  if (!circleBody.isStatic) {
+    circleBody.velocity = vec2_add(
+        circleBody.velocity, vec2_mul(frictionVector, circleBody.inverseMass));
+  }
+  if (!aabbBody.isStatic) {
+    aabbBody.velocity = vec2_sub(
+        aabbBody.velocity, vec2_mul(frictionVector, aabbBody.inverseMass));
+  }
+
+  // Update circle position
+  if (!circleBody.isStatic) {
+    circleBody.shape.circle.center = circleBody.position;
+  }
+
+  // Update AABB position
+  if (!aabbBody.isStatic) {
+    vec2 halfSize = vec2_mul(
+        vec2_sub(aabbBody.shape.aabb.max, aabbBody.shape.aabb.min), 0.5);
+    aabbBody.shape.aabb.min = vec2_sub(aabbBody.position, halfSize);
+    aabbBody.shape.aabb.max = vec2_add(aabbBody.position, halfSize);
+  }
+}
 
 void resolveCollisions(vector<BroadPhaseCollisionPair> &collisions,
                        vector<Body> &bodies) {
